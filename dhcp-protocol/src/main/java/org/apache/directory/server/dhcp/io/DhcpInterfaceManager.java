@@ -15,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
@@ -51,6 +52,23 @@ import org.slf4j.LoggerFactory;
 public class DhcpInterfaceManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(DhcpInterfaceManager.class);
+
+    public interface InetToInterfaceMapper {
+        InterfaceAddress map(InetAddress address, Collection<InterfaceAddress> interfaceAddresses);
+    }
+
+    public static final class LocalInetToInterfaceMapper implements InetToInterfaceMapper {
+
+        @Override
+        public InterfaceAddress map(InetAddress address, Collection<InterfaceAddress> interfaceAddresses) {
+            for (InterfaceAddress iface : interfaceAddresses) {
+                if (iface.isLocal(address))
+                    return iface;
+            }
+            return null;
+
+        }
+    }
 
     public static class ValidPredicate implements Predicate<NetworkInterface> {
 
@@ -115,9 +133,18 @@ public class DhcpInterfaceManager {
         private Dummy() {
         }
     }
+
+    private final InetToInterfaceMapper interfaceMapper;
     private final ConcurrentMap<InterfaceAddress, Dummy> interfaces = new ConcurrentHashMap<InterfaceAddress, Dummy>();
     // private final Multimap<NetworkInterface, InterfaceAddress> interfaces = Multimaps.synchronizedSetMultimap(HashMultimap.create());
 
+    public DhcpInterfaceManager() {
+        this(new LocalInetToInterfaceMapper());
+    }
+
+    public DhcpInterfaceManager(InetToInterfaceMapper interfaceMapper) {
+        this.interfaceMapper = interfaceMapper;
+    }
     @Nonnull
     public Set<? extends InterfaceAddress> getInterfaces() {
         return interfaces.keySet();
@@ -161,11 +188,7 @@ public class DhcpInterfaceManager {
     @CheckForNull
     public InterfaceAddress getInterface(@Nonnull InetAddress address) {
         Preconditions.checkNotNull(address, "Address was null.");
-        for (InterfaceAddress iface : interfaces.keySet()) {
-            if (iface.isLocal(address))
-                return iface;
-        }
-        return null;
+        return interfaceMapper.map(address, interfaces.keySet());
     }
 
     public void addInterface(@Nonnull InterfaceAddress address) throws IOException, InterruptedException {
